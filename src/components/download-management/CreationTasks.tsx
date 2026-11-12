@@ -29,9 +29,13 @@ export const CreationTasks: React.FC = () => {
               rel="noreferrer"
               className="flex items-center space-x-1 overflow-hidden pr-4"
             >
-              <Avatar size={20} src={t.user.avatar} className="shrink-0" />
+              {t.user?.avatar && (
+                <Avatar size={20} src={t.user.avatar} className="shrink-0" />
+              )}
               <span className="whitespace-nowrap overflow-hidden text-ellipsis">
-                {`${t.user?.name || '未知用户'} ${t.user?.screenName ? `@${t.user.screenName}` : ''}`}
+                {t.user
+                  ? `${t.user?.name || '未知用户'} ${t.user?.screenName ? `@${t.user.screenName}` : ''}`
+                  : t.sourceLabel}
               </span>
             </a>
             <div className="flex items-center space-x-2 shrink-0">

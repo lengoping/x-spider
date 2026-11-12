@@ -52,6 +52,18 @@ export const useSettingsStore = create(
           delete state.download.savePath;
         }
 
+        if (version < 3) {
+          // V2 -> V3：新字段用默认值补齐，旧值原样保留。
+          state.download = R.mergeDeepRight(
+            DEFAULT_SETTINGS.download,
+            state.download ?? {},
+          );
+          state.app = R.mergeDeepRight(
+            DEFAULT_SETTINGS.app,
+            state.app ?? {},
+          );
+        }
+
         return state;
       },
     },
