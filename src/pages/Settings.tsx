@@ -6,8 +6,9 @@ import { Item } from '../components/settings/Item';
 import { DownloadOutlined, GlobalOutlined } from '@ant-design/icons';
 import Joi from 'joi';
 import { SavePathSelector } from '../components/settings/SavePathSelector';
-import { Button, Input, Switch } from 'antd';
+import { Button, Input, InputNumber, Select, Switch } from 'antd';
 import { FileNameTemplateInput } from '../components/settings/FileNameTemplateInput';
+import { CookieAccounts } from '../components/settings/CookieAccounts';
 import { showInFolder } from '../utils/shell';
 import { path } from '@tauri-apps/api';
 
@@ -81,6 +82,114 @@ export const Settings: React.FC = () => {
           <Switch />
         </Item>
       </Section>
+      <Section title="下载内容" name="download" titleIcon={<DownloadOutlined />}>
+        <Item
+          settingKey="downloadTweet"
+          label="下载推文"
+          valuePropName="checked"
+          description="下载任务是否保存推文正文文件，并写入推文库"
+        >
+          <Switch />
+        </Item>
+        <Item
+          settingKey="tweetFormat"
+          label="推文保存格式"
+          description="推文正文文件的格式；选“不保存”则只下载媒体"
+        >
+          <Select
+            options={[
+              { label: 'TXT', value: 'txt' },
+              { label: 'HTML', value: 'html' },
+              { label: 'JSON', value: 'json' },
+              { label: '不保存', value: 'none' },
+            ]}
+          />
+        </Item>
+        <Item
+          settingKey="downloadMedia"
+          label="下载媒体"
+          valuePropName="checked"
+          description="关闭后只保存推文正文、不下载图片与视频"
+        >
+          <Switch />
+        </Item>
+        <Item
+          settingKey="gifToMp4"
+          label="GIF 转换为 MP4"
+          valuePropName="checked"
+          description="X 的 GIF 本身就是 MP4 直链，开启后按视频保存，不做本地转码"
+        >
+          <Switch />
+        </Item>
+      </Section>
+      <Section title="视频图片质量" name="download" titleIcon={<DownloadOutlined />}>
+        <Item
+          settingKey="videoQuality"
+          label="视频质量"
+          description="720p / 480p 按码率档位尽力匹配，X 的视频链接不带分辨率元数据"
+        >
+          <Select
+            options={[
+              { label: '最高画质', value: 'best' },
+              { label: '720p', value: '720p' },
+              { label: '480p', value: '480p' },
+            ]}
+          />
+        </Item>
+        <Item
+          settingKey="imageQuality"
+          label="图片质量"
+          description="对应 pbs.twimg.com 的原图 / 大图 / 中图"
+        >
+          <Select
+            options={[
+              { label: '原图', value: 'orig' },
+              { label: '大图', value: 'large' },
+              { label: '中图', value: 'medium' },
+            ]}
+          />
+        </Item>
+      </Section>
+      <Section title="日期分段" name="download" titleIcon={<DownloadOutlined />}>
+        <Item
+          settingKey="dateSegmentStepDays"
+          label="每段天数"
+          description="日期分段下载时每段的天数，1-30 天"
+        >
+          <InputNumber min={1} max={30} />
+        </Item>
+        <Item
+          settingKey="dateSegmentDirection"
+          label="分段方向"
+          description="从新到旧先抓最新内容，从旧到新按时间顺序抓"
+        >
+          <Select
+            options={[
+              { label: '从新到旧', value: 'newToOld' },
+              { label: '从旧到新', value: 'oldToNew' },
+            ]}
+          />
+        </Item>
+      </Section>
+      <Section title="并发与限速" name="download" titleIcon={<DownloadOutlined />}>
+        <Item
+          settingKey="concurrency"
+          label="并发数"
+          description="同时提交给 aria2 的下载任务数"
+        >
+          <InputNumber min={1} max={10} />
+        </Item>
+        <Item
+          settingKey="rateLimitMs"
+          label="翻页间隔（毫秒）"
+          description="两次翻页请求之间的最小间隔，太小容易触发限流"
+        >
+          <InputNumber min={0} step={100} />
+        </Item>
+      </Section>
+      <Section title="多 Cookie 账号" name="app" titleIcon={<GlobalOutlined />}>
+        <CookieAccounts />
+      </Section>
       <Section title="代理" name="proxy" titleIcon={<GlobalOutlined />}>
         <Item label="启用代理" settingKey="enable" valuePropName="checked">
           <Switch />
@@ -131,6 +240,13 @@ export const Settings: React.FC = () => {
           valuePropName="checked"
         >
           <Switch />
+        </Item>
+        <Item
+          label="Cookie 账号上限"
+          description="最多保存的 Cookie 账号数"
+          settingKey="maxCookies"
+        >
+          <InputNumber min={1} max={10} />
         </Item>
         <Button
           onClick={async () => {

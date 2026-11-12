@@ -16,10 +16,34 @@ import { useAppStateStore } from '../stores/app-state';
 import { parseCookie } from '../utils/cookie';
 import MediaType from '../enums/MediaType';
 
+import { resolveActiveCookieString } from './cookies';
+
 const HOST = 'x.com';
 
+/**
+ * 401/403 回调注册点：由调用方（stores/download.ts 在模块加载时）注册，
+ * 收到未授权响应时切换到下一个可用 Cookie。api.ts 自身不 import
+ * 任何 store，避免循环依赖。
+ */
+export type AuthFailureHandler = () => void;
+
+let authFailureHandler: AuthFailureHandler | null = null;
+
+export function registerAuthFailureHandler(handler: AuthFailureHandler): void {
+  authFailureHandler = handler;
+}
+
+export function clearAuthFailureHandler(): void {
+  authFailureHandler = null;
+}
+
 function getCommonHeaders(withCredentials = true): Record<string, string> {
-  const cookies = useAppStateStore.getState().cookieString;
+  const appState = useAppStateStore.getState();
+  const cookies = resolveActiveCookieString(
+    appState.cookieAccounts ?? [],
+    appState.activeCookieId ?? null,
+    appState.cookieString,
+  );
   return {
     'User-Agent': navigator.userAgent,
     Referer: `https://${HOST}`,
@@ -35,10 +59,38 @@ function getCommonHeaders(withCredentials = true): Record<string, string> {
 }
 
 function ensureResponse(response: Response) {
+  if (response.status === 401 || response.status === 403) {
+    // 触发多 Cookie 切换：下一次请求即用新账号的 Cookie。
+    authFailureHandler?.();
+  }
   if (response.status >= 400) {
     log.error(response);
     throw new Error(`Response error: status=${response.status}`);
   }
+}
+
+/**
+ * 通用 GraphQL GET 请求：新端点（见 src/twitter/endpoints.ts）共用。
+ * operationId 由端点注册表提供，未配置时调用方应先抛
+ * EndpointNotConfiguredError，不要传猜测的 ID 进来。
+ */
+export async function requestGraphql(
+  operationId: string,
+  variables: Record<string, unknown>,
+  features?: Record<string, unknown>,
+): Promise<any> {
+  const resp = await request({
+    method: 'GET',
+    responseType: 'json',
+    url: `https://${HOST}/i/api/graphql/${operationId}`,
+    query: {
+      ...(features ? { features: JSON.stringify(features) } : {}),
+      variables: JSON.stringify(variables),
+    },
+    headers: getCommonHeaders(),
+  });
+  ensureResponse(resp);
+  return resp.body;
 }
 
 export async function getAccountInfo(
@@ -114,7 +166,7 @@ export async function getUser(screenName: string): Promise<TwitterUser> {
   };
 }
 
-const mapTwitterPosts = (posts: any[]) => {
+export const mapTwitterPosts = (posts: any[]) => {
   const mapTwitterMedias = (medias: any[]) => {
     const toTwitterMediaBase: (v: any) => TwitterMediaBase = (v: any) => {
       return {
@@ -212,6 +264,78 @@ const pathToInstructions = R.path<any>([
   'timeline',
   'instructions',
 ]);
+
+/**
+ * 通用 timeline 解析（入口式 entries）：供新端点（SearchTimeline /
+ * TweetDetail / Likes / Bookmarks / HomeTimeline 等）复用。
+ * 与 getUserTweets 不同，这里不过滤转推与无媒体帖子，由调用方自行过滤。
+ * 各端点返回的 instructions 路径不同，这里按候选路径依次尝试。
+ */
+const INSTRUCTIONS_PATH_CANDIDATES: string[][] = [
+  ['data', 'user', 'result', 'timeline_v2', 'timeline', 'instructions'],
+  ['data', 'search_by_raw_query', 'search_timeline', 'timeline', 'instructions'],
+  ['data', 'home', 'home_timeline_urt', 'instructions'],
+  ['data', 'threaded_conversation_with_injections_v2', 'instructions'],
+  ['data', 'timeline', 'instructions'],
+  ['data', 'user', 'result', 'timeline', 'timeline', 'instructions'],
+];
+
+function findInstructions(body: any): any[] {
+  for (const candidate of INSTRUCTIONS_PATH_CANDIDATES) {
+    const instructions = R.path<any>(candidate)(body);
+    if (Array.isArray(instructions) && instructions.length > 0) {
+      return instructions;
+    }
+  }
+  return [];
+}
+
+export function extractTimelinePosts(body: any): TwitterPost[] {
+  const instructions = findInstructions(body);
+  const items = R.pipe(
+    R.find(R.pathEq('TimelineAddEntries', ['type'])),
+    R.defaultTo({}),
+    R.prop('entries'),
+    R.defaultTo([]),
+    R.map(
+      R.cond([
+        [
+          R.pathSatisfies(R.startsWith('tweet'), ['entryId']),
+          R.path(['content', 'itemContent', 'tweet_results', 'result']),
+        ],
+        [
+          R.pathSatisfies(R.startsWith('profile-conversation'), ['entryId']),
+          R.pipe(
+            R.path<any>(['content', 'items']),
+            R.map(
+              R.path(['item', 'itemContent', 'tweet_results', 'result']),
+            ),
+          ),
+        ],
+        [R.T, R.always(undefined)],
+      ]),
+    ),
+    R.flatten,
+    R.filter(R.isNotNil),
+    R.map((item: any) =>
+      item?.__typename === 'TweetWithVisibilityResults' ? item.tweet : item,
+    ),
+    R.filter(R.isNotNil),
+  )(instructions);
+  return mapTwitterPosts(items);
+}
+
+/** 通用底部游标解析：取 TimelineAddEntries 里 cursorType 为 Bottom 的值。 */
+export function extractNextCursorFromBody(body: any): string | null {
+  const instructions = findInstructions(body);
+  return R.pipe<any, any, any, any, any, string | undefined, string | null>(
+    R.find(R.pathEq('TimelineAddEntries', ['type'])),
+    R.prop('entries'),
+    R.find(R.pathEq('Bottom', ['content', 'cursorType'])),
+    R.path(['content', 'value']),
+    R.defaultTo(null),
+  )(instructions);
+}
 
 export async function getUserMedias(
   userId: string,
